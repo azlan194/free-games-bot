@@ -2,8 +2,8 @@ import os
 import requests
 import time
 
-# This pulls the secret URL safely from the cloud environment
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
+HISTORY_FILE = "posted_games.txt"
 
 def send_to_discord(content):
     """Sends a formatted text payload to the Discord Webhook."""
@@ -18,6 +18,12 @@ def send_to_discord(content):
         print(f"Failed to send message to Discord: {e}")
 
 def get_all_free_games():
+    # 1. Load previously posted games from the history file
+    already_posted = set()
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            already_posted = set(line.strip() for line in f if line.strip())
+
     stores_url = "https://www.cheapshark.com/api/1.0/stores"
     deals_url = "https://www.cheapshark.com/api/1.0/deals?upperPrice=0"
     
@@ -33,15 +39,36 @@ def get_all_free_games():
         
         valid_deals = [game for game in deals if float(game.get('normalPrice', 0)) > 0.00]
 
-        if not valid_deals:
-            send_to_discord("😭 No 100% free games found across any platforms right now.")
+        # Keep track of everything currently free to update our history file
+        current_free_games = []
+        new_deals_to_post = []
+
+        for game in valid_deals:
+            title = game.get('title')
+            store_id = game.get('storeID')
+            # Create a unique identifier combining platform and title
+            unique_id = f"{store_id}_{title}"
+            current_free_games.append(unique_id)
+
+            # Only post if we haven't seen it recently
+            if unique_id not in already_posted:
+                new_deals_to_post.append(game)
+
+        # 2. Update the history file for tomorrow's run
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            for uid in current_free_games:
+                f.write(f"{uid}\n")
+
+        # 3. If there are no *new* deals, stop here
+        if not new_deals_to_post:
+            print("No new free games to post today. (Any active free games were already posted).")
             return
 
-        print(f"Found {len(valid_deals)} free games. Sending to Discord...")
+        print(f"Found {len(new_deals_to_post)} new free games. Sending to Discord...")
         
-        message_chunk = "🎮 **Currently 100% Free Games Across All Platforms** 🎮\n" + ("=" * 45) + "\n\n"
+        message_chunk = "🎮 **New 100% Free Games Found!** 🎮\n" + ("=" * 45) + "\n\n"
         
-        for game in valid_deals:
+        for game in new_deals_to_post:
             title = game.get('title')
             normal_price = float(game.get('normalPrice', 0))
             store_name = store_map.get(game.get('storeID'), "Unknown Store")
