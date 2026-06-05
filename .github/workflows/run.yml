@@ -1,0 +1,30 @@
+name: Run Daily Free Games Check
+
+on:
+  schedule:
+    # ⚠️ NOTE: GitHub uses UTC time!
+    # 12:00 UTC is 8:00 AM EDT (Eastern) / 5:00 AM PDT (Pacific)
+    # Adjust this numbers to match your specific timezone's 8:00 AM!
+    - cron: '0 15 * * *'
+  workflow_dispatch: # This adds a manual "Run now" button so you can test it
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: pip install requests
+
+    - name: Execute script
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: python main.py
