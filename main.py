@@ -30,23 +30,21 @@ def get_all_free_games():
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             already_posted = set(line.strip() for line in f if line.strip())
 
-    # 2. Fetch ITAD Deals (Looking for 100% off price cut)
-    # Docs: https://docs.isthereanydeal.com/
-    deals_url = f"https://api.isthereanydeal.com/v2/deals/list?key={ITAD_API_KEY}"
+    # 🔑 FIXED: Removed '/list' from the URL endpoint
+    deals_url = f"https://api.isthereanydeal.com/v2/deals?key={ITAD_API_KEY}"
     
     try:
         response = requests.get(deals_url)
         response.raise_for_status()
         data = response.json()
         
-        # ITAD structure parses lists inside the 'list' property
-        deals = data.get("list", [])
+        # 🔑 FIXED: ITAD v2 uses the "deals" key in its root JSON response
+        deals = data.get("deals", [])
         
         current_free_games = []
         new_deals_to_post = []
 
         for deal in deals:
-            # ITAD provides price cut details (100 means 100% off)
             cut = deal.get("cut", 0)
             price_info = deal.get("price", {})
             regular_info = deal.get("regular", {})
@@ -59,7 +57,6 @@ def get_all_free_games():
                 title = deal.get("title")
                 shop = deal.get("shop", {})
                 store_name = shop.get("name", "Unknown Store")
-                # Direct retail link provided by ITAD
                 deal_url = deal.get("url") 
                 
                 unique_id = f"{shop.get('id')}_{title}"
@@ -105,6 +102,17 @@ def get_all_free_games():
             
         if message_chunk:
             send_to_discord(message_chunk)
+            
+    except requests.exceptions.RequestException as e:
+        # Safe error handling: strips out the API key from the error log before sending to Discord
+        error_msg = str(e)
+        if ITAD_API_KEY and ITAD_API_KEY in error_msg:
+            error_msg = error_msg.replace(ITAD_API_KEY, "[REDACTED_API_KEY]")
+            
+        send_to_discord(f"⚠️ **Error fetching data from IsThereAnyDeal:** {error_msg}")
+
+if __name__ == "__main__":
+    get_all_free_games()
             
     except requests.exceptions.RequestException as e:
         send_to_discord(f"⚠️ **Error fetching data from IsThereAnyDeal:** {e}")
