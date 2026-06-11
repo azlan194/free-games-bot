@@ -28,6 +28,7 @@ jobs:
     - name: Execute script
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
       run: python main.py
 
     # 💾 SAVE THE LOG FILE BACK TO GITHUB
