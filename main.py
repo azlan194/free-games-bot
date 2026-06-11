@@ -30,45 +30,57 @@ def get_all_free_games():
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             already_posted = set(line.strip() for line in f if line.strip())
 
-    # 🔑 FIXED: Removed '/list' from the URL endpoint
-    deals_url = f"https://api.isthereanydeal.com/v2/deals?key={ITAD_API_KEY}"
+    # 🔑 FIXED: Exact endpoint path from the documentation
+    deals_url = "https://api.isthereanydeal.com/deals/v2"
+    
+    # 🔑 FIXED: Filter parameters to narrow down only to 100% off deals across up to 200 listings
+    query_params = {
+        "key": ITAD_API_KEY,
+        "limit": 200,
+        "filter": '{"cut":{"min":100,"max":100}}'
+    }
     
     try:
-        response = requests.get(deals_url)
+        response = requests.get(deals_url, params=query_params)
         response.raise_for_status()
-        data = response.json()
         
-        # 🔑 FIXED: ITAD v2 uses the "deals" key in its root JSON response
-        deals = data.get("deals", [])
+        # 🔑 FIXED: ITAD v2 returns a flat list of game objects
+        games = response.json()
         
         current_free_games = []
         new_deals_to_post = []
 
-        for deal in deals:
-            cut = deal.get("cut", 0)
-            price_info = deal.get("price", {})
-            regular_info = deal.get("regular", {})
+        for game in games:
+            title = game.get("title")
+            game_id = game.get("id")
+            game_deals = game.get("deals", [])
             
-            current_price = price_info.get("amount", 1.0)
-            regular_price = regular_info.get("amount", 0.0)
-            
-            # Filter for 100% off deals where it normally costs money
-            if cut == 100 and current_price == 0.0 and regular_price > 0.0:
-                title = deal.get("title")
-                shop = deal.get("shop", {})
-                store_name = shop.get("name", "Unknown Store")
-                deal_url = deal.get("url") 
+            # Iterate through the specific store deals for this game
+            for deal in game_deals:
+                price_info = deal.get("price", {})
+                regular_info = deal.get("regular", {})
                 
-                unique_id = f"{shop.get('id')}_{title}"
-                current_free_games.append(unique_id)
+                current_price = price_info.get("amount", 1.0)
+                regular_price = regular_info.get("amount", 0.0)
+                
+                # Double-check that it is free and normally costs money
+                if current_price == 0.0 and regular_price > 0.0:
+                    shop = deal.get("shop", {})
+                    store_name = shop.get("name", "Unknown Store")
+                    shop_id = shop.get("id", "unknown")
+                    deal_url = deal.get("url") 
+                    
+                    # Create a unique identifier combining store ID and unique game uuid
+                    unique_id = f"{shop_id}_{game_id}"
+                    current_free_games.append(unique_id)
 
-                if unique_id not in already_posted:
-                    new_deals_to_post.append({
-                        "title": title,
-                        "store": store_name,
-                        "original": regular_price,
-                        "url": deal_url
-                    })
+                    if unique_id not in already_posted:
+                        new_deals_to_post.append({
+                            "title": title,
+                            "store": store_name,
+                            "original": regular_price,
+                            "url": deal_url
+                        })
 
         # 3. Save current free list into state history
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -104,7 +116,7 @@ def get_all_free_games():
             send_to_discord(message_chunk)
             
     except requests.exceptions.RequestException as e:
-        # Safe error handling: strips out the API key from the error log before sending to Discord
+        # Safe error handling: strips out the API key from the log string if it prints out
         error_msg = str(e)
         if ITAD_API_KEY and ITAD_API_KEY in error_msg:
             error_msg = error_msg.replace(ITAD_API_KEY, "[REDACTED_API_KEY]")
@@ -113,4 +125,3 @@ def get_all_free_games():
 
 if __name__ == "__main__":
     get_all_free_games()
-
