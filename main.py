@@ -36,6 +36,7 @@ def get_all_free_games():
     # 🔑 FIXED: Filter parameters to narrow down only to 100% off deals across up to 200 listings
     query_params = {
         "key": ITAD_API_KEY,
+        "country": "US",
         "limit": 200,
         "filter": '{"cut":{"min":100,"max":100}}'
     }
