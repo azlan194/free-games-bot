@@ -1,6 +1,11 @@
+import json
 import os
 import requests
 import time
+# from dotenv import load_dotenv
+
+# --- INITIALIZE ENVIRONMENT VARIABLES ---
+# load_dotenv()  # This looks for a local .env file and l>
 
 # Secure variables pulled from GitHub environments
 DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK")
@@ -24,39 +29,42 @@ def get_all_free_games():
         print("Error: ITAD_API_KEY environment variable is missing.")
         return
 
-    # 1. Load previously posted history
     already_posted = set()
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             already_posted = set(line.strip() for line in f if line.strip())
 
-    # 🔑 FIXED: Exact endpoint path from the documentation
     deals_url = "https://api.isthereanydeal.com/deals/v2"
     
-    # 🔑 FIXED: Filter parameters to narrow down only to 100% off deals across up to 200 listings
-    query_params = {
-        "key": ITAD_API_KEY,
-        "country": "US",
+    # Ensure the API key is stripped of any accidental newlines/spaces from the GitHub Secret
+    headers = {
+        "ITAD-API-Key": ITAD_API_KEY.strip(),
+        "Content-Type": "application/json",
+        "User-Agent": "FreeGameDiscordBot/1.0"
+    }
+    
+    # Using the verified stable filter to grab 100% price cuts
+    payload = {
         "limit": 200,
-        "filter": '{"cut":{"min":100,"max":100}}'
+        "filter": {
+            "cut": {"min": 99, "max": 100},
+            "price": {"min": 0, "max": 0}
+        }
     }
     
     try:
-        response = requests.get(deals_url, params=query_params)
+        response = requests.get(deals_url, headers=headers, json=payload)
         response.raise_for_status()
-        
-        # 🔑 FIXED: ITAD v2 returns a flat list of game objects
-        games = response.json()
-        
+        response_json = response.json()
+        games = response_json.get("list", [])
         current_free_games = []
         new_deals_to_post = []
 
         for game in games:
             title = game.get("title")
             game_id = game.get("id")
-            game_deals = game.get("deals", [])
+            game_deals = [game.get("deal")]
             
-            # Iterate through the specific store deals for this game
             for deal in game_deals:
                 price_info = deal.get("price", {})
                 regular_info = deal.get("regular", {})
@@ -64,14 +72,13 @@ def get_all_free_games():
                 current_price = price_info.get("amount", 1.0)
                 regular_price = regular_info.get("amount", 0.0)
                 
-                # Double-check that it is free and normally costs money
+                # Double-check logic: Current price is $0, but it normally costs money
                 if current_price == 0.0 and regular_price > 0.0:
                     shop = deal.get("shop", {})
                     store_name = shop.get("name", "Unknown Store")
                     shop_id = shop.get("id", "unknown")
                     deal_url = deal.get("url") 
                     
-                    # Create a unique identifier combining store ID and unique game uuid
                     unique_id = f"{shop_id}_{game_id}"
                     current_free_games.append(unique_id)
 
@@ -83,19 +90,17 @@ def get_all_free_games():
                             "url": deal_url
                         })
 
-        # 3. Save current free list into state history
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             for uid in current_free_games:
                 f.write(f"{uid}\n")
 
-        # 4. If nothing is new, shut down gracefully
         if not new_deals_to_post:
             print("No brand new free games to post today via IsThereAnyDeal.")
             return
 
-        print(f"Found {len(new_deals_to_post)} new free deals on ITAD! Sending...")
+        print(f"Found {len(new_deals_to_post)} new free deals! Sending to Discord...")
         
-        message_chunk = "🎮 **New 100% Free Games Found (via IsThereAnyDeal)!** 🎮\n" + ("=" * 45) + "\n\n"
+        message_chunk = f"🎮 **New {len(new_deals_to_post)} Free Games Found (via IsThereAnyDeal)!** 🎮\n" + ("=" * 45) + "\n\n"
         
         for game in new_deals_to_post:
             game_text = (
@@ -106,6 +111,7 @@ def get_all_free_games():
                 f"---------------------------------------------\n"
             )
             
+            # Avoid hitting Discord's 2000 character limit per message
             if len(message_chunk) + len(game_text) > 1900:
                 send_to_discord(message_chunk)
                 message_chunk = ""
@@ -117,7 +123,6 @@ def get_all_free_games():
             send_to_discord(message_chunk)
             
     except requests.exceptions.RequestException as e:
-        # Safe error handling: strips out the API key from the log string if it prints out
         error_msg = str(e)
         if ITAD_API_KEY and ITAD_API_KEY in error_msg:
             error_msg = error_msg.replace(ITAD_API_KEY, "[REDACTED_API_KEY]")
@@ -126,3 +131,4 @@ def get_all_free_games():
 
 if __name__ == "__main__":
     get_all_free_games()
+
