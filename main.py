@@ -113,9 +113,4 @@ def get_all_free_games():
 
 if __name__ == "__main__":
     get_all_free_games()
-            
-    except requests.exceptions.RequestException as e:
-        send_to_discord(f"⚠️ **Error fetching data from IsThereAnyDeal:** {e}")
 
-if __name__ == "__main__":
-    get_all_free_games()
