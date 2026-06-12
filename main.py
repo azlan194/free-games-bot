@@ -110,12 +110,21 @@ def get_all_free_games():
 
         print(f"Found {len(new_deals_to_post)} new free deals! Bundling for Discord...")
 
+       # Dictionary mapping storefront names to high-quality public icon URLs
+        STORE_ICONS = {
+            "steam": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/500px-Steam_icon_logo.svg.png",
+            "epic game store": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Epic_Games_logo.svg/500px-Epic_Games_logo.svg.png",
+            "gog": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/GOG.com_logo.svg/500px-GOG.com_logo.svg.png",
+            "microsoft store": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/500px-Microsoft_logo.svg.png",
+            "humble store": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Humble_Bundle_H_logo_red.svg/500px-Humble_Bundle_H_logo_red.svg.png"
+        }
+ 
         # 1. Group the games into chunks of 8 to respect Discord's strict 10-embed limit per message
         embed_chunks = []
         current_chunk = []
 
         for game in new_deals_to_post:
-            # Build a structured embed card for this specific game
+            # Build the base structured embed card
             embed = {
                 "title": game['title'],
                 "description": (
@@ -124,11 +133,16 @@ def get_all_free_games():
                     f"🔗 [Claim Game Here]({game['url']})"
                 )
             }
-
-            # Attach the banner image if it exists in the ITAD response
+            
+            # 1. Attach the large game banner to the bottom
             if game['thumbnail']:
                 embed["image"] = {"url": game['thumbnail']}
-
+                
+            # 2. Attach the small store logo to the top right
+            store_key = game['store'].lower()
+            if store_key in STORE_ICONS:
+                embed["thumbnail"] = {"url": STORE_ICONS[store_key]}
+                
             current_chunk.append(embed)
 
             # If we reach our bundle limit, save this batch and start a new one
@@ -140,7 +154,7 @@ def get_all_free_games():
         if current_chunk:
             embed_chunks.append(current_chunk)
 
-            # 2. Transmit the bundles to your Discord server
+            # 3. Transmit the bundles to your Discord server
         for i, chunk in enumerate(embed_chunks):
             # Include the main alert banner only on the very first notification bundle
             content = f"🎮 **New {len(new_deals_to_post)} Free Games Found (via IsThereAnyDeal)!** 🎮\n" + ("=" * 45) if i == 0 else ""
@@ -160,4 +174,5 @@ def get_all_free_games():
 
 if __name__ == "__main__":
     get_all_free_games()
+
 
