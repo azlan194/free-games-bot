@@ -12,12 +12,16 @@ DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK")
 ITAD_API_KEY = os.environ.get("ITAD_API_KEY")
 HISTORY_FILE = "posted_games.txt"
 
-def send_to_discord(content):
-    """Sends a formatted text payload to the Discord Webhook."""
+def send_to_discord(content, embeds=None):
+    """Sends a formatted text payload and optional embeds to the Discord Webhook."""
     if not DISCORD_WEBHOOK:
         print("Error: DISCORD_WEBHOOK environment variable is missing.")
         return
+
     data = {"content": content}
+    if embeds:
+        data["embeds"] = embeds
+
     try:
         response = requests.post(DISCORD_WEBHOOK, json=data)
         response.raise_for_status()
@@ -63,22 +67,27 @@ def get_all_free_games():
         for game in games:
             title = game.get("title")
             game_id = game.get("id")
+
+            # Extract the thumbnail asset
+            assets = game.get("assets", {})
+            thumbnail_url = assets.get("banner600")
+
             game_deals = [game.get("deal")]
-            
+
             for deal in game_deals:
                 price_info = deal.get("price", {})
                 regular_info = deal.get("regular", {})
-                
+
                 current_price = price_info.get("amount", 1.0)
                 regular_price = regular_info.get("amount", 0.0)
-                
+
                 # Double-check logic: Current price is $0, but it normally costs money
                 if current_price == 0.0 and regular_price > 0.0:
                     shop = deal.get("shop", {})
                     store_name = shop.get("name", "Unknown Store")
                     shop_id = shop.get("id", "unknown")
-                    deal_url = deal.get("url") 
-                    
+                    deal_url = deal.get("url")
+
                     unique_id = f"{shop_id}_{game_id}"
                     current_free_games.append(unique_id)
 
@@ -87,7 +96,8 @@ def get_all_free_games():
                             "title": title,
                             "store": store_name,
                             "original": regular_price,
-                            "url": deal_url
+                            "url": deal_url,
+                            "thumbnail": thumbnail_url # Save the thumbnail to our list
                         })
 
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -98,35 +108,54 @@ def get_all_free_games():
             print("No brand new free games to post today via IsThereAnyDeal.")
             return
 
-        print(f"Found {len(new_deals_to_post)} new free deals! Sending to Discord...")
-        
-        message_chunk = f"🎮 **New {len(new_deals_to_post)} Free Games Found (via IsThereAnyDeal)!** 🎮\n" + ("=" * 45) + "\n\n"
-        
+        print(f"Found {len(new_deals_to_post)} new free deals! Bundling for Discord...")
+
+        # 1. Group the games into chunks of 8 to respect Discord's strict 10-embed limit per message
+        embed_chunks = []
+        current_chunk = []
+
         for game in new_deals_to_post:
-            game_text = (
-                f"**{game['title']}**\n"
-                f"🏬 **Platform:** {game['store']}\n"
-                f"💰 **Price:** ~~${game['original']:.2f}~~ -> **FREE!**\n"
-                f"🔗 [Claim Game Here]({game['url']})\n"
-                f"---------------------------------------------\n"
-            )
-            
-            # Avoid hitting Discord's 2000 character limit per message
-            if len(message_chunk) + len(game_text) > 1900:
-                send_to_discord(message_chunk)
-                message_chunk = ""
-                time.sleep(1)
-                
-            message_chunk += game_text
-            
-        if message_chunk:
-            send_to_discord(message_chunk)
-            
+            # Build a structured embed card for this specific game
+            embed = {
+                "title": game['title'],
+                "description": (
+                    f"🏬 **Platform:** {game['store']}\n"
+                    f"💰 **Price:** ~~${game['original']:.2f}~~ -> **FREE!**\n"
+                    f"🔗 [Claim Game Here]({game['url']})"
+                )
+            }
+
+            # Attach the banner image if it exists in the ITAD response
+            if game['thumbnail']:
+                embed["image"] = {"url": game['thumbnail']}
+
+            current_chunk.append(embed)
+
+            # If we reach our bundle limit, save this batch and start a new one
+            if len(current_chunk) == 10:
+                embed_chunks.append(current_chunk)
+                current_chunk = []
+
+            # Catch any remaining games left over
+        if current_chunk:
+            embed_chunks.append(current_chunk)
+
+            # 2. Transmit the bundles to your Discord server
+        for i, chunk in enumerate(embed_chunks):
+            # Include the main alert banner only on the very first notification bundle
+            content = f"🎮 **New {len(new_deals_to_post)} Free Games Found (via IsThereAnyDeal)!** 🎮\n" + ("=" * 45) if i == 0 else ""
+
+            # This sends all games in the chunk inside a single webhook request payload
+            send_to_discord(content, embeds=chunk)
+
+            # Anti-rate-limit safety pause between distinct batch messages
+            time.sleep(2)
+
     except requests.exceptions.RequestException as e:
         error_msg = str(e)
         if ITAD_API_KEY and ITAD_API_KEY in error_msg:
             error_msg = error_msg.replace(ITAD_API_KEY, "[REDACTED_API_KEY]")
-            
+
         send_to_discord(f"⚠️ **Error fetching data from IsThereAnyDeal:** {error_msg}")
 
 if __name__ == "__main__":
